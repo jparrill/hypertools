@@ -5,12 +5,15 @@ REPODIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 source $REPODIR/common/common.sh
 
 cd ${HYPERSHIFT_PATH}
+export KUBECONFIG=${MGMT_KUBECONFIG}
 
-## Compile in container for k8s execution in cloud
-GOOS=linux GOARCH=amd64 make IMG=${HYPERSHIFT_IMAGE} docker-build docker-push
-
-## Compile it for M1 processor
-make build
+if [[ ${BUILD} == true ]]; then
+    ## Compile in container for k8s execution in cloud
+    GOOS=linux GOARCH=amd64 make IMG=${HYPERSHIFT_IMAGE} docker-build docker-push
+    
+    ## Compile it for M1 processor
+    make build
+fi 
 
 aws s3api create-bucket --acl public-read --bucket $BUCKET_NAME --create-bucket-configuration LocationConstraint=$MGMT_REGION --region $MGMT_REGION || true
 
