@@ -5,7 +5,12 @@ REPODIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 source $REPODIR/common/common.sh
 
 cd ${HYPERSHIFT_PATH}
-export KUBECONFIG=${MGMT_KUBECONFIG}
+
+if [[ -z ${KUBECONFIG} ]]; then
+    echo "Please set Kubeconfig ENV var to install Hypershift"
+    exit 1
+fi
+
 
 if [[ ${BUILD} == true ]]; then
     ## Compile in container for k8s execution in cloud

@@ -51,18 +51,20 @@ function backup_etcd {
 function render_hc_objects {
     # Backup resources
     rm -fr ${BACKUP_DIR}
-    mkdir -p ${BACKUP_DIR}/namespaces
-    chmod 700 ${BACKUP_DIR}/namespaces
+    mkdir -p ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}
+    chmod 700 ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}
 
     # HostedCluster
-    oc get hc ${HC_CLUSTER_NAME} -n ${HC_CLUSTER_NS} -o yaml > ${BACKUP_DIR}/namespaces/hc-${HC_CLUSTER_NAME}.yaml
-    
+    oc get hc ${HC_CLUSTER_NAME} -n ${HC_CLUSTER_NS} -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/hc-${HC_CLUSTER_NAME}.yaml
+    sed -i '' -e '/^status:$/,$d' ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/hc-${HC_CLUSTER_NAME}.yaml
+
     # NodePool
-    oc get np ${NODEPOOLS} -n ${HC_CLUSTER_NS} -o yaml > ${BACKUP_DIR}/namespaces/np-${NODEPOOLS}.yaml
+    oc get np ${NODEPOOLS} -n ${HC_CLUSTER_NS} -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/np-${NODEPOOLS}.yaml
+    sed -i '' -e '/^status:$/,$ d' ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/np-${NODEPOOLS}.yaml 
     
     # Secrets
     for s in $(oc get secret -n ${HC_CLUSTER_NS} | grep "^${HC_CLUSTER_NAME}" | awk '{print $1}'); do
-      oc get secret -n ${HC_CLUSTER_NS} $s -o yaml > ${BACKUP_DIR}/namespaces/secret-${s}.yaml
+      oc get secret -n ${HC_CLUSTER_NS} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/secret-${s}.yaml
     done
 }
 
@@ -82,4 +84,3 @@ NODEPOOLS=$(oc get nodepools -n ${HC_CLUSTER_NS}  -o=jsonpath='{.items[?(@.spec.
 stop_reconciliation
 backup_etcd
 render_hc_objects
-
