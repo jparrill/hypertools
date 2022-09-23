@@ -3,17 +3,38 @@
 
 set -xeu
 
-function stop_reconciliation {
-    # Pause reconciliation of the HostedCluster
-    PAUSED_UNTIL="true"
-    oc patch -n ${HC_CLUSTER_NS} hostedclusters/${HC_CLUSTER_NAME} -p '{"spec":{"pausedUntil":"'${PAUSED_UNTIL}'"}}' --type=merge
-    oc patch -n ${HC_CLUSTER_NS} nodepools/${NODEPOOLS} -p '{"spec":{"pausedUntil":"'${PAUSED_UNTIL}'"}}' --type=merge
-    
-    # Stop etcd-writer deployments
-    oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=0 kube-apiserver openshift-apiserver openshift-oauth-apiserver
-    
-    # Scale down nodepools (FIXME unless reusing nodes)
-    oc scale nodepool -n ${HC_CLUSTER_NS} --replicas=0 ${NODEPOOLS}
+function change_reconciliation {
+
+    if [[ -z "${1}" ]];then
+        echo "Give me the status <start|stop>"
+        exit 1
+    fi
+
+    case ${1} in
+        "stop")
+            # Pause reconciliation of the HostedCluster
+            PAUSED_UNTIL="true"
+            oc patch -n ${HC_CLUSTER_NS} hostedclusters/${HC_CLUSTER_NAME} -p '{"spec":{"pausedUntil":"'${PAUSED_UNTIL}'"}}' --type=merge
+            oc patch -n ${HC_CLUSTER_NS} nodepools/${NODEPOOLS} -p '{"spec":{"pausedUntil":"'${PAUSED_UNTIL}'"}}' --type=merge
+            
+            # Stop etcd-writer deployments
+            oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=0 kube-apiserver openshift-apiserver openshift-oauth-apiserver
+            
+            # Scale down nodepools (FIXME unless reusing nodes)
+            #oc scale nodepool -n ${HC_CLUSTER_NS} --replicas=0 ${NODEPOOLS}
+            ;;
+        "start")
+            PAUSED_UNTIL="false"
+            oc patch -n ${HC_CLUSTER_NS} hostedclusters/${HC_CLUSTER_NAME} -p '{"spec":{"pausedUntil":"'${PAUSED_UNTIL}'"}}' --type=merge
+            oc patch -n ${HC_CLUSTER_NS} nodepools/${NODEPOOLS} -p '{"spec":{"pausedUntil":"'${PAUSED_UNTIL}'"}}' --type=merge
+            oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=1 kube-apiserver openshift-apiserver openshift-oauth-apiserver
+            ;;
+        *)
+            echo "Status not implemented"
+            exit 1
+            ;;
+    esac
+
 }
 
 function backup_etcd {
@@ -161,7 +182,7 @@ function backup_hc {
     oc annotate -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} machines --all "machine.cluster.x-k8s.io/exclude-node-draining="
     NODEPOOLS=$(oc get nodepools -n ${HC_CLUSTER_NS}  -o=jsonpath='{.items[?(@.spec.clusterName=="'${HC_CLUSTER_NAME}'")].metadata.name}')
     
-    stop_reconciliation
+    change_reconciliation "stop"
     backup_etcd
     render_hc_objects
 }

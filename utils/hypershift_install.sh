@@ -6,7 +6,7 @@ source $REPODIR/common/common.sh
 
 cd ${HYPERSHIFT_PATH}
 
-if [[ -z ${KUBECONFIG} ]]; then
+if [[ -z "${KUBECONFIG}" ]]; then
     echo "Please set Kubeconfig ENV var to install Hypershift"
     exit 1
 fi
