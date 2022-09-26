@@ -1,0 +1,28 @@
+#!/bin/bash
+
+export BASE_PATH=/Users/jparrill/RedHat/RedHat_Engineering/hypershift
+export NS=${1:-jparrill}
+export NAME=${2:-jparrill-dev}
+
+if [[ -z "${KUBECONFIG}" ]]; then
+    echo "Please set Kubeconfig ENV var to delete the HostedCluster environment"
+    exit 1
+fi
+
+echo "Variables Debug: "
+echo "=================="
+echo "HC Name: ${NAME}"
+echo "HC Namespace: ${NS}"
+echo "Kubeconfig: ${KUBECONFIG}"
+echo "=================="
+echo
+echo "Press enter to delete the environment..."
+read
+
+
+${BASE_PATH}/repos/hypershift/bin/hypershift destroy cluster aws \
+  --aws-creds ~/.aws/credentials \
+  --name ${NAME} \
+  --namespace ${NS} 
+
+rm -rf ${BASE_PATH}/hosted_clusters/${NS}-${NAME}

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+if [[ -z $REGION ]];then
+    echo "I need a region to work with, \$REGION var is empty"
+    echo Setting default AWS region: US-WEST-1""
+    export REGION="us-west-1"
+fi
+export BUCKET_NAME=jparrill-hosted-$REGION
+
+aws s3api create-bucket --acl public-read --bucket $BUCKET_NAME --create-bucket-configuration LocationConstraint=$REGION --region $REGION
+echo "export BUCKET_NAME=jparrill-hosted-$REGION"

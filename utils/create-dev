@@ -1,0 +1,41 @@
+#!/bin/bash
+
+export BASE_PATH=/Users/jparrill/RedHat/RedHat_Engineering/hypershift
+export NS=${1:-jparrill}
+export NAME=${2:-jparrill-dev}
+export EXT_DNS=${3:-false}
+export REL_IMAGE=${4:-quay.io/openshift-release-dev/ocp-release:4.12.0-ec.3-x86_64}
+export REGION=us-west-1
+export WORKERS=2
+
+if [[ -z "${KUBECONFIG}" ]]; then
+    echo "Please set Kubeconfig ENV var to deploy HostedCluster environment"
+    exit 1
+fi
+
+if [[ ${EXT_DNS} == true ]];then
+    DNS_FLAGS="--external-dns-domain=${NAME}.aws.kerbeross.com"
+fi
+
+echo "Variables Debug: "
+echo "=================="
+echo "HC Name: ${NAME}"
+echo "HC Namespace: ${NS}"
+echo "AWS Region: ${REGION}"
+echo "Kubeconfig: ${KUBECONFIG}"
+echo "Workers: ${WORKERS}"
+echo "External DNS: ${EXT_DNS}"
+echo "Release Image: ${REL_IMAGE}"
+echo "Command: ${BASE_PATH}/repos/hypershift/bin/hypershift create cluster aws --aws-creds ~/.aws/credentials --instance-type m6i.xlarge --region ${REGION} --auto-repair --generate-ssh --name ${NAME} --namespace ${NS} --base-domain aws.kerbeross.com --node-pool-replicas ${WORKERS} --pull-secret ${HOME}/RedHat/RedHat_Engineering/pull_secret.json --release-image ${REL_IMAGE} ${DNS_FLAGS}"
+echo "=================="
+echo
+echo "Press enter to provision the environment..."
+
+read
+
+${BASE_PATH}/repos/hypershift/bin/hypershift create cluster aws --aws-creds ~/.aws/credentials --instance-type m6i.xlarge --region ${REGION} --auto-repair --generate-ssh --name ${NAME} --namespace ${NS} --base-domain aws.kerbeross.com --node-pool-replicas ${WORKERS} --pull-secret ${HOME}/RedHat/RedHat_Engineering/pull_secret.json --release-image ${REL_IMAGE} ${DNS_FLAGS}
+
+mkdir -p ${BASE_PATH}/hosted_clusters/${NS}-${NAME}
+sleep 120
+${BASE_PATH}/repos/hypershift/bin/hypershift create kubeconfig --name ${NAME} --namespace ${NS} > ${BASE_PATH}/hosted_clusters/${NS}-${NAME}/kubeconfig
+echo "export KUBECONFIG=${BASE_PATH}/hosted_clusters/${NS}-${NAME}/kubeconfig"

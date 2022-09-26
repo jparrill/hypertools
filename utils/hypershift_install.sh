@@ -27,10 +27,7 @@ oc delete deployment operator -n hypershift || true
 oc wait pod --selector hypershift.openshift.io/operator-component=operator --for=delete --timeout=60s
 
 ${HYPERSHIFT_CLI} install \
-  $([ -n "${HYPERSHIFT_IMAGE}" ] && echo "--hypershift-image ${HYPERSHIFT_IMAGE}") \
-  --oidc-storage-provider-s3-bucket-name $BUCKET_NAME \
-  --oidc-storage-provider-s3-credentials $AWS_CREDS \
-  --oidc-storage-provider-s3-region $MGMT_REGION
+  $([ -n "${HYPERSHIFT_IMAGE}" ] && echo "--hypershift-image ${HYPERSHIFT_IMAGE}") --oidc-storage-provider-s3-bucket-name $BUCKET_NAME --oidc-storage-provider-s3-credentials $AWS_CREDS --oidc-storage-provider-s3-region $MGMT_REGION 
 
 oc wait --for=condition=ready pod -l hypershift.openshift.io/operator-component=operator --timeout=300s -n hypershift
 

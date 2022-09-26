@@ -72,6 +72,7 @@ function restore_object {
 }
 
 function render_migrated_kubeconfig {
+    sleep 30
     oc wait --for=condition=ready pod -l app=kube-apiserver -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --timeout=300s
     ${HYPERSHIFT_CLI} create kubeconfig > ${HC_CLUSTER_DIR}/kubeconfig_new
 
