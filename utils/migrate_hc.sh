@@ -73,22 +73,42 @@ function render_hc_objects {
     chmod 700 ${BACKUP_DIR}/namespaces/ 
 
     # HostedCluster
+    echo "Backing Up HostedCluster Objects:"
     oc get hc ${HC_CLUSTER_NAME} -n ${HC_CLUSTER_NS} -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/hc-${HC_CLUSTER_NAME}.yaml
+    echo "--> HostedCluster"
     sed -i '' -e '/^status:$/,$d' ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/hc-${HC_CLUSTER_NAME}.yaml
 
     # NodePool
     oc get np ${NODEPOOLS} -n ${HC_CLUSTER_NS} -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/np-${NODEPOOLS}.yaml
+    echo "--> NodePool"
     sed -i '' -e '/^status:$/,$ d' ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/np-${NODEPOOLS}.yaml 
     
     # Secrets in the HC Namespace
+    echo "--> HostedCluster Secrets:"
     for s in $(oc get secret -n ${HC_CLUSTER_NS} | grep "^${HC_CLUSTER_NAME}" | awk '{print $1}'); do
-      oc get secret -n ${HC_CLUSTER_NS} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/secret-${s}.yaml
+        oc get secret -n ${HC_CLUSTER_NS} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}/secret-${s}.yaml
     done
 
     # Secrets in the HC Control Plane Namespace
+    echo "--> HostedCluster ControlPlane Secrets:"
     for s in $(oc get secret -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} | egrep -v "docker|service-account-token|oauth-openshift|NAME|token-${HC_CLUSTER_NAME}" | awk '{print $1}'); do
-      oc get secret -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}/secret-${s}.yaml
+        oc get secret -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}/secret-${s}.yaml
     done
+
+    # MachineSets 
+    echo "--> HostedCluster MachineSets:"
+    for s in $(oc get machineset -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} -o name); do
+        ms_name=$(echo ${s} | cut -f 2 -d /)
+        oc get -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}/machineset-${ms_name}.yaml
+    done
+
+    # Machines 
+    echo "--> HostedCluster Machine:"
+    for s in $(oc get machine -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} -o name); do
+        m_name=$(echo ${s} | cut -f 2 -d /)
+        oc get -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} $s -o yaml > ${BACKUP_DIR}/namespaces/${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}/machine-${m_name}.yaml
+    done
+
 }
 
 
@@ -152,15 +172,16 @@ function restore_object {
     fi
 
     case ${1} in
-        "secret" | "hc")
+        "secret" | "machine" | "machineset")
             # Cleaning the YAML files before apply them
             for f in $(ls -1 ${BACKUP_DIR}/namespaces/${2}/${1}-*); do
-                yq 'del(.metadata.ownerReferences,.metadata.creationTimestamp,.metadata.resourceVersion,.metadata.uid)' $f | oc apply -f -
+                yq 'del(.metadata.ownerReferences,.metadata.creationTimestamp,.metadata.resourceVersion,.metadata.uid,.status)' $f | oc apply -f -
             done
             ;;
-        "np")
+        "hc" | "np")
+            # Cleaning the YAML files before apply them
             for f in $(ls -1 ${BACKUP_DIR}/namespaces/${2}/${1}-*); do
-                yq 'del(.metadata.ownerReferences,.metadata.creationTimestamp,.metadata.resourceVersion,.metadata.uid)' $f | oc apply -f -
+                yq 'del(.metadata.ownerReferences,.metadata.creationTimestamp,.metadata.resourceVersion,.metadata.uid,.status,.spec.pausedUntil)' $f | oc apply -f -
             done
             ;;
         *)
@@ -180,6 +201,40 @@ function render_migrated_kubeconfig {
     echo "export KUBECONFIG=${HC_CLUSTER_DIR}/kubeconfig_new to access"
 }
 
+function clean_routes() {
+
+    if [[ -z "${1}" ]];then
+        echo "Give me the NS where to clean the routes"
+        exit 1
+    fi
+
+    # Constants
+    if [[ -z "${2}" ]];then
+        echo "Give me the Route53 zone ID"
+        exit 1
+    fi
+
+    ZONE_ID=${2}
+    ROUTES=10
+    timeout=20
+    count=0
+
+    # This allows us to remove the ownership in the AWS for the API route
+    oc delete route -n ${1} --all
+
+    while ${ROUTES} > 1
+    do 
+        echo "Waiting for ExternalDNS Operator to clean the DNS Records in AWS Route53 where the zone id is: ${ZONE_ID}..."
+        echo "Try: (${count}/${timeout})"
+        sleep 10
+        if [[ $count -eq timeout ]];then
+            echo "Timeout waiting for cleaning the Route53 DNS records"
+            exit 1
+        fi
+        ROUTES=$(aws route53 list-resource-record-sets --hosted-zone-id ${ZONE_ID} --max-items 10000 --output json | grep -c ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}) 
+    done
+}
+
 function backup_hc {
     BACKUP_DIR=${HC_CLUSTER_DIR}/backup
     # Create a ConfigMap on the guest so we can tell which management cluster it came from
@@ -193,9 +248,8 @@ function backup_hc {
     
     change_reconciliation "stop"
     backup_etcd
-    # This allows us to remove the ownership in the AWS for the API route
-    oc delete route -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --all
     render_hc_objects
+    clean_routes "${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}" "Z02718293M33QHDEQBROL" 
 }
 
 function restore_hc {
@@ -219,6 +273,8 @@ function restore_hc {
     restore_object "secret" ${HC_CLUSTER_NS}
     oc new-project ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} || oc project ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}
     restore_object "secret" ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}
+    restore_object "machine" ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}
+    restore_object "machineset" ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}
     restore_etcd
     restore_object "np" ${HC_CLUSTER_NS}
     render_migrated_kubeconfig
@@ -227,7 +283,13 @@ function restore_hc {
 function teardown_old_hc {
     export KUBECONFIG=${MGMT_KUBECONFIG}
 
-    oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=1 kube-apiserver openshift-apiserver openshift-oauth-apiserver control-plane-operator
+    # Scale down deployments
+    oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=0 --all 
+
+    # Delete Finalizers
+    oc patch -n "${HC_CLUSTER_NS}" hostedclusters ${HC_CLUSTER_NAME} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
+    oc patch -n "${HC_CLUSTER_NS}" nodepool ${NODEPOOLS} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
+
     oc delete hc -n ${HC_CLUSTER_NS} ${HC_CLUSTER_NAME}
 }
 
