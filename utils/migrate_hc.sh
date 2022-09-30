@@ -272,10 +272,29 @@ function restore_hc {
 }
 
 function teardown_old_hc {
+
+    timeout=40
+    count=0
+    NODE_STATUS=$(oc get nodes --kubeconfig=${HC_KUBECONFIG} | grep -v NotReady | grep -c "worker") || NODE_STATUS=0 
+
+    while [ ${NODE_POOL_REPLICAS} != ${NODE_STATUS} ]
+    do
+        echo "Waiting for Nodes to be Ready in the destination MGMT Cluster: ${MGMT2_CLUSTER_NAME}"
+        echo "Try: (${count}/${timeout})"
+        sleep 30
+        if [[ $count -eq timeout ]];then
+            echo "Timeout waiting for Nodes in the destination MGMT Cluster"
+            exit 1
+        fi
+        count=$((count+1))
+        NODE_STATUS=$(oc get nodes --kubeconfig=${HC_KUBECONFIG} | grep -v NotReady | grep -c "worker") || NODE_STATUS=0 
+    done
+
     export KUBECONFIG=${MGMT_KUBECONFIG}
 
     # Scale down deployments
     oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=0 --all 
+    oc scale statefulset.apps -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=0 --all 
     sleep 15
 
     # Delete Finalizers
@@ -329,7 +348,5 @@ echo "Press enter to continue the migration"
 read
 restore_hc
 echo "Restoration Done!"
-echo "Press enter to teardown the HC cluster in the ${MGMT_CLUSTER_NAME} Cluster"
-read
 teardown_old_hc
 echo "Teardown Done"
