@@ -192,15 +192,6 @@ function restore_object {
 
 }
 
-function render_migrated_kubeconfig {
-    sleep 30
-    #oc wait --for=condition=ready pod -l app=kube-apiserver -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --timeout=300s
-    ${HYPERSHIFT_CLI} create kubeconfig > ${HC_CLUSTER_DIR}/kubeconfig_new
-
-    echo "Hosted cluster ${HC_CLUSTER_NAME} migrated to ${MGMT2_CLUSTER_NAME} Cluster"
-    echo "export KUBECONFIG=${HC_CLUSTER_DIR}/kubeconfig_new to access"
-}
-
 function clean_routes() {
 
     if [[ -z "${1}" ]];then
@@ -216,13 +207,13 @@ function clean_routes() {
 
     ZONE_ID=${2}
     ROUTES=10
-    timeout=20
+    timeout=40
     count=0
 
     # This allows us to remove the ownership in the AWS for the API route
     oc delete route -n ${1} --all
 
-    while ${ROUTES} > 1
+    while [ ${ROUTES} -gt 1 ]
     do 
         echo "Waiting for ExternalDNS Operator to clean the DNS Records in AWS Route53 where the zone id is: ${ZONE_ID}..."
         echo "Try: (${count}/${timeout})"
@@ -231,7 +222,8 @@ function clean_routes() {
             echo "Timeout waiting for cleaning the Route53 DNS records"
             exit 1
         fi
-        ROUTES=$(aws route53 list-resource-record-sets --hosted-zone-id ${ZONE_ID} --max-items 10000 --output json | grep -c ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}) 
+        count=$((count+1))
+        ROUTES=$(aws route53 list-resource-record-sets --hosted-zone-id ${ZONE_ID} --max-items 10000 --output json | grep -c ${HC_CLUSTER_NAME}) 
     done
 }
 
@@ -277,7 +269,6 @@ function restore_hc {
     restore_object "machineset" ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}
     restore_etcd
     restore_object "np" ${HC_CLUSTER_NS}
-    render_migrated_kubeconfig
 }
 
 function teardown_old_hc {
@@ -285,12 +276,47 @@ function teardown_old_hc {
 
     # Scale down deployments
     oc scale deployment -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --replicas=0 --all 
+    sleep 15
 
     # Delete Finalizers
-    oc patch -n "${HC_CLUSTER_NS}" hostedclusters ${HC_CLUSTER_NAME} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
-    oc patch -n "${HC_CLUSTER_NS}" nodepool ${NODEPOOLS} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
+    NODEPOOLS=$(oc get nodepools -n ${HC_CLUSTER_NS} -o=jsonpath='{.items[?(@.spec.clusterName=="'${HC_CLUSTER_NAME}'")].metadata.name}')
+    if [[ ! -z "${NODEPOOLS}" ]];then 
+        oc patch -n "${HC_CLUSTER_NS}" nodepool ${NODEPOOLS} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
+        oc delete np -n ${HC_CLUSTER_NS} ${NODEPOOLS}
+    fi
 
-    oc delete hc -n ${HC_CLUSTER_NS} ${HC_CLUSTER_NAME}
+    # Machines
+    for m in $(oc get machines -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} -o name); do
+        oc patch -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} ${m} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]' || true
+        oc delete -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} ${m} || true
+    done
+
+    oc delete machineset -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --all || true
+
+    # Cluster
+    C_NAME=$(oc get cluster -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} -o name)
+    oc patch -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} ${C_NAME} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
+    oc delete cluster.cluster.x-k8s.io -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --all
+
+    # AWS Machines
+    for m in $(oc get awsmachine.infrastructure.cluster.x-k8s.io -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} -o name)
+    do
+        oc patch -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} ${m} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]' || true
+        oc delete -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} ${m} || true
+    done
+
+    # HCP
+    oc patch -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} hostedcontrolplane.hypershift.openshift.io ${HC_CLUSTER_NAME} --type=json --patch='[ { "op":"remove", "path": "/metadata/finalizers" }]'
+    oc delete hostedcontrolplane.hypershift.openshift.io -n ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} --all
+
+    oc delete ns ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME} || true
+
+    oc -n ${HC_CLUSTER_NS} patch hostedclusters ${HC_CLUSTER_NAME} -p '{"metadata":{"finalizers":null}}' --type merge || true
+    oc delete hc -n ${HC_CLUSTER_NS} ${HC_CLUSTER_NAME}  --wait=false || true
+    oc -n ${HC_CLUSTER_NS} patch hostedclusters ${HC_CLUSTER_NAME} -p '{"metadata":{"finalizers":null}}' --type merge || true
+    oc delete hc -n ${HC_CLUSTER_NS} ${HC_CLUSTER_NAME}  || true
+
+    oc delete ns ${HC_CLUSTER_NS} || true
 }
 
 
@@ -303,5 +329,7 @@ echo "Press enter to continue the migration"
 read
 restore_hc
 echo "Restoration Done!"
-#teardown_old_hc
-#echo "Teardown Done!"
+echo "Press enter to teardown the HC cluster in the ${MGMT_CLUSTER_NAME} Cluster"
+read
+teardown_old_hc
+echo "Teardown Done"
