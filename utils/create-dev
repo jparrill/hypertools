@@ -14,7 +14,7 @@ if [[ -z "${KUBECONFIG}" ]]; then
 fi
 
 if [[ ${EXT_DNS} == true ]];then
-    DNS_FLAGS="--external-dns-domain=${NAME}.aws.kerbeross.com"
+    DNS_FLAGS="--external-dns-domain=${NAME}-public.aws.kerbeross.com --endpoint-access=PublicAndPrivate"
 fi
 
 echo "Variables Debug: "
