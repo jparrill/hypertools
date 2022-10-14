@@ -3,14 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"fmt"
-	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -23,8 +22,11 @@ const (
 	etcdBackupPath = "/var/lib/data/snapshot.db"
 	snapshotSave   = "env ETCDCTL_API=3 /usr/bin/etcdctl --cacert /etc/etcd/tls/client/etcd-client-ca.crt --cert /etc/etcd/tls/client/etcd-client.crt --key /etc/etcd/tls/client/etcd-client.key --endpoints=localhost:2379 snapshot save " + etcdBackupPath
 	snapshotStatus = "env ETCDCTL_API=3 /usr/bin/etcdctl -w table snapshot status " + etcdBackupPath
+	contentType    = "application/x-compressed-tar"
 )
 
+// Main function will execute an etcd backup command into an ETCD Pod and
+// Upload the content to S3 bucket
 func main() {
 	// Get MGMT Cluster Kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", "/Users/jparrill/RedHat/RedHat_Engineering/hypershift/AWS/Kubeconfig")
@@ -33,63 +35,65 @@ func main() {
 	}
 
 	contxt := context.TODO()
-
 	client, err := kubernetes.NewForConfig(config)
 
 	// Indentify number of ETCD pods
 	hcName := "jparrill-dev"
 	nsName := "jparrill"
 	bucketName := "jparrill-hosted-us-west-1"
+	date := time.Now().Format(time.RFC1123Z)
 	CPns := fmt.Sprintf("%s-%s", nsName, hcName)
 	EtcdPod, err := client.CoreV1().Pods(CPns).Get(contxt, "etcd-0", metav1.GetOptions{})
 	if err != nil {
 		panic(err)
 	}
+	path := fmt.Sprintf("/%s/%s-%s-snapshot.db", bucketName, hcName, EtcdPod.Name)
+	postUrl := fmt.Sprintf("https://%s.s3.amazonaws.com", bucketName)
+	postUri := fmt.Sprintf("%s-%s-snapshot.db", hcName, EtcdPod.Name)
 
 	sout, serr, err := ExecuteRemoteCommand(EtcdPod, snapshotSave)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("STDOUT: %v\nSTDERR: %v\n", sout, serr)
 	sout, serr, err = ExecuteRemoteCommand(EtcdPod, snapshotStatus)
 	if err != nil {
+		fmt.Printf("STDOUT: %v\nSTDERR: %v\n", sout, serr)
 		panic(err)
 	}
 	fmt.Printf("STDOUT: %v\nSTDERR: %v\n", sout, serr)
 
 	// Configure AWS Client
 	AWSCreds := credentials.NewSharedCredentials("/Users/jparrill/.aws/credentials", "default")
-
-	sess, err := session.NewSession(&aws.Config{
-		Region:      aws.String("us-west-2"),
-		Credentials: AWSCreds,
-	})
-	presignedUrl, err := presignUrlCreator(sess, bucketName, etcdBackupPath)
+	secretAWSK, err := AWSCreds.Get()
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("%s", presignedUrl)
-
-}
-
-func GetEnvWithKey(key string) string {
-	return os.Getenv(key)
-}
-
-func presignUrlCreator(sess *session.Session, key, value string) (string, error) {
-	svc := s3.New(sess)
-	req, _ := svc.GetObjectRequest(&s3.GetObjectInput{
-		Bucket: aws.String(key),
-		Key:    aws.String(value),
-	})
-	presignedUrl, err := req.Presign(15 * time.Minute)
+	signatureString := fmt.Sprintf("PUT\n\n%v\n%v\n%s", contentType, date, path)
+	authstring, err := presignUrlCreator(signatureString, secretAWSK)
 	if err != nil {
-		return presignedUrl, fmt.Errorf("Failed to sign request", err)
+		panic(err)
 	}
 
-	return presignedUrl, nil
+	curlCommand := fmt.Sprintf(`/usr/bin/curl -X PUT "%s/%s" -H "Host: %s.s3.amazonaws.com" -H "Date: %v" -H "Content-Type: %s" -H "%s" --upload-file "%s"`, postUrl, postUri, bucketName, date, contentType, authstring, etcdBackupPath)
+
+	sout, serr, err = ExecuteRemoteCommand(EtcdPod, curlCommand)
+	if err != nil {
+		fmt.Printf("STDOUT: %v\nSTDERR: %v\n", sout, serr)
+		panic(err)
+	}
+
+}
+
+func presignUrlCreator(signatureString string, creds credentials.Value) (string, error) {
+
+	key := []byte(creds.SecretAccessKey)
+	h := hmac.New(sha1.New, key)
+	h.Write([]byte(signatureString))
+	signatureHash := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	authstring := fmt.Sprintf("Authorization: AWS %s:%s", creds.AccessKeyID, signatureHash)
+	return authstring, nil
 }
 
 func ExecuteRemoteCommand(pod *v1.Pod, command string) (string, string, error) {
