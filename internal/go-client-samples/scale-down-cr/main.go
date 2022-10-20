@@ -23,7 +23,7 @@ const (
 func main() {
 	//var c client.Client
 	ctx := context.TODO()
-	var zeroReplicas int32 = 0
+	var zeroReplicas int32 = 1
 	client, err := e2eutil.GetClient()
 	if err != nil {
 		panic(err)
@@ -35,6 +35,12 @@ func main() {
 	})
 	if err != nil {
 		panic(err)
+	}
+
+	numNodes := 1
+	for _, nodePool := range nodePools.Items {
+		fmt.Printf("Waiting for NodePool and Nodes \n", nodePool.Name, zeroReplicas)
+		e2eutil.WaitForNReadyNodes(t, ctx, client, numNodes, "AWS")
 	}
 
 	// Update NodePools
