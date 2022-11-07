@@ -213,7 +213,7 @@ function clean_routes() {
     # This allows us to remove the ownership in the AWS for the API route
     oc delete route -n ${1} --all
 
-    while [ ${ROUTES} -gt 1 ]
+    while [ ${ROUTES} -gt 2 ]
     do 
         echo "Waiting for ExternalDNS Operator to clean the DNS Records in AWS Route53 where the zone id is: ${ZONE_ID}..."
         echo "Try: (${count}/${timeout})"
@@ -223,7 +223,7 @@ function clean_routes() {
             exit 1
         fi
         count=$((count+1))
-        ROUTES=$(aws route53 list-resource-record-sets --hosted-zone-id ${ZONE_ID} --max-items 10000 --output json | grep -c ${HC_CLUSTER_NAME}) 
+        ROUTES=$(aws route53 list-resource-record-sets --hosted-zone-id ${ZONE_ID} --max-items 10000 --output json | grep -c ${EXTERNAL_DNS_DOMAIN}) 
     done
 }
 
@@ -241,7 +241,7 @@ function backup_hc {
     change_reconciliation "stop"
     backup_etcd
     render_hc_objects
-    clean_routes "${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}" "Z02718293M33QHDEQBROL" 
+    clean_routes "${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}" "${AWS_ZONE_ID}"
 }
 
 function restore_hc {
