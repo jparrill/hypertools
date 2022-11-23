@@ -375,6 +375,11 @@ function teardown_old_hc {
     oc delete ns ${HC_CLUSTER_NS} || true
 }
 
+function restore_ovn_pods() {
+    echo "Deleting OVN Pods in Guest Cluster to reconnect with new OVN Master"
+    oc --kubeconfig=${HC_KUBECONFIG} delete pod -n openshift-ovn-kubernetes --all
+}
+
 
 REPODIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 source $REPODIR/common/common.sh
@@ -401,6 +406,7 @@ echo $ELAPSED
 SECONDS=0
 echo "Tearing down the HC in Source Management Cluster"
 teardown_old_hc
+restore_ovn_pods
 echo "Teardown Done"
 ELAPSED="Elapsed: $(($SECONDS / 3600))hrs $((($SECONDS / 60) % 60))min $(($SECONDS % 60))sec"
 echo $ELAPSED
