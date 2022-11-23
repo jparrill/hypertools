@@ -304,9 +304,6 @@ function restore_hc {
     restore_object "machineset" ${HC_CLUSTER_NS}-${HC_CLUSTER_NAME}
     restore_etcd
     restore_object "np" ${HC_CLUSTER_NS}
-}
-
-function teardown_old_hc {
 
     timeout=40
     count=0
@@ -324,6 +321,11 @@ function teardown_old_hc {
         count=$((count+1))
         NODE_STATUS=$(oc get nodes --kubeconfig=${HC_KUBECONFIG} | grep -v NotReady | grep -c "worker") || NODE_STATUS=0
     done
+
+
+}
+
+function teardown_old_hc {
 
     export KUBECONFIG=${MGMT_KUBECONFIG}
 
@@ -388,16 +390,16 @@ echo "Press enter to continue the migration"
 read
 
 ## Migration
-echo "Executing the HC Migration"
 SECONDS=0
+echo "Executing the HC Migration"
 restore_hc
 echo "Restoration Done!"
 ELAPSED="Elapsed: $(($SECONDS / 3600))hrs $((($SECONDS / 60) % 60))min $(($SECONDS % 60))sec"
 echo $ELAPSED
 
 ## Teardown
-echo "Tearing down the HC in Source Management Cluster"
 SECONDS=0
+echo "Tearing down the HC in Source Management Cluster"
 teardown_old_hc
 echo "Teardown Done"
 ELAPSED="Elapsed: $(($SECONDS / 3600))hrs $((($SECONDS / 60) % 60))min $(($SECONDS % 60))sec"
