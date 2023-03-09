@@ -409,7 +409,7 @@ REPODIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 source $REPODIR/common/common.sh
 
 ## Backup
-echo "Creating ETCD Backup"
+echo "Creating HC Backup"
 SECONDS=0
 backup_hc
 echo "Backup Done!"

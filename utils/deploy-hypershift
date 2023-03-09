@@ -1,0 +1,40 @@
+#!/bin/bash
+
+export BASE_PATH=/Users/jparrill/RedHat/RedHat_Engineering/hypershift
+export NS=${1:-jparrill}
+export NAME=${2:-jparrill-dev}
+export REGION=us-west-1
+#export REGION=us-east-1
+export WORKERS=2
+
+if [[ -z "${KUBECONFIG}" ]]; then
+    echo "Please set Kubeconfig ENV var to deploy HostedCluster environment"
+    exit 1
+fi
+
+echo "Variables Debug: "
+echo "=================="
+echo "AWS Region: ${REGION}"
+echo "Kubeconfig: ${KUBECONFIG}"
+echo "Release Image: ${REL_IMAGE}"
+echo "Command: ${BASE_PATH}/repos/hypershift/bin/hypershift install \ "
+echo "   --oidc-storage-provider-s3-bucket-name jparrill-hosted-${REGION} --oidc-storage-provider-s3-credentials $HOME/.aws/credentials --oidc-storage-provider-s3-region ${REGION} \ "
+echo "   --private-platform AWS --aws-private-creds ~/.aws/credentials --aws-private-region ${REGION} \ "
+echo "   --external-dns-provider=aws --external-dns-credentials=$HOME/.aws/credentials --external-dns-domain-filter=hc.jpdv.aws.kerbeross.com \ "
+echo "   --platform-monitoring=OperatorOnly --enable-uwm-telemetry-remote-write --enable-ci-debug-output --metrics-set All --enable-validating-webhook --development"
+echo "=================="
+echo
+echo "Press enter to Install Hypershift"
+
+read
+
+${BASE_PATH}/repos/hypershift/bin/hypershift install \
+    --oidc-storage-provider-s3-bucket-name jparrill-hosted-${REGION} --oidc-storage-provider-s3-credentials $HOME/.aws/credentials --oidc-storage-provider-s3-region ${REGION} \
+    --private-platform AWS --aws-private-creds ~/.aws/credentials --aws-private-region ${REGION} \
+    --external-dns-provider=aws --external-dns-credentials=$HOME/.aws/credentials --external-dns-domain-filter=hc.jpdv.aws.kerbeross.com \
+    --platform-monitoring=OperatorOnly --enable-uwm-telemetry-remote-write --enable-ci-debug-output --metrics-set All --enable-validating-webhook --development
+
+sleep 10
+oc scale deployment/operator -n hypershift --replicas=1
+oc wait pod -n hypershift -l app=operator --for condition=Ready --timeout=90s
+echo "Done!"

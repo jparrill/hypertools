@@ -1,12 +1,63 @@
 #!/bin/bash
 
+function clean_private_zones() {
+
+    # Constants
+    if [[ -z "${1}" ]];then
+        echo "Give me the Route53 domain"
+        exit 1
+    fi
+
+    ZONE_DOMAIN=${1}
+    ZONE_ID=$(aws route53 list-hosted-zones \
+            --output text \
+            --query 'HostedZones[?Name==`'${1}'.`].Id')
+    
+    echo 
+    echo "Looking for the zone..."
+    echo "Zone Domain: ${ZONE_DOMAIN}"
+    echo "Zone ID: ${ZONE_ID}"
+
+    if [[ -z ${ZONE_ID} ]];then
+        echo "The Zone does not exists"
+    else
+        echo "Zone found, deleting entries..."
+        aws route53 list-resource-record-sets \
+            --hosted-zone-id ${ZONE_ID} |
+            jq -c '.ResourceRecordSets[]' |
+            while read -r resourcerecordset; do
+                read -r name type <<<$(echo $(jq -r '.Name,.Type' <<<"$resourcerecordset"))
+                if [ $type != "NS" -a $type != "SOA" ]; then
+                aws route53 change-resource-record-sets \
+                    --hosted-zone-id ${ZONE_ID} \
+                    --change-batch '{"Changes":[{"Action":"DELETE","ResourceRecordSet":
+                    '"$resourcerecordset"'
+                    }]}' \
+                    --output text # --query 'ChangeInfo.Id'
+                fi
+            done
+
+        echo "Deleting zone..."
+        echo "Zone Domain: ${ZONE_DOMAIN}"
+        echo "Zone ID: ${ZONE_ID}"
+
+        aws route53 delete-hosted-zone \
+            --id ${ZONE_ID} \
+            --output text 
+    fi
+
+}
+
 export BASE_PATH=/Users/jparrill/RedHat/RedHat_Engineering/hypershift
 export NS=${1:-jparrill}
 export NAME=${2:-jparrill-dev}
 export EXT_DNS=${3:-false}
-export REL_IMAGE=${4:-quay.io/openshift-release-dev/ocp-release:4.12.0-ec.3-x86_64}
+export REL_IMAGE=${OCP_IMAGE:-quay.io/openshift-release-dev/ocp-release:4.13.0-ec.4-x86_64}
 export REGION=us-west-1
+#export REGION=us-east-1
 export WORKERS=2
+export CPO=${CPO_OVERRIDE:-false}
+
 
 if [[ -z "${KUBECONFIG}" ]]; then
     echo "Please set Kubeconfig ENV var to deploy HostedCluster environment"
@@ -14,7 +65,15 @@ if [[ -z "${KUBECONFIG}" ]]; then
 fi
 
 if [[ ${EXT_DNS} == true ]];then
-    DNS_FLAGS="--external-dns-domain=${NAME}-public.aws.kerbeross.com --endpoint-access=PublicAndPrivate"
+    DNS_FLAGS="--external-dns-domain=hc.jpdv.aws.kerbeross.com --endpoint-access=PublicAndPrivate"
+fi
+
+
+if [[ ${CPO} != false ]];then
+    export BRANCH=$(git branch --show-current | cut -f2 -d/)
+    CPO_SUFFIX="--control-plane-operator-image ${CPO_OVERRIDE}"
+else
+    CPO_SUFFIX=""
 fi
 
 echo "Variables Debug: "
@@ -26,14 +85,22 @@ echo "Kubeconfig: ${KUBECONFIG}"
 echo "Workers: ${WORKERS}"
 echo "External DNS: ${EXT_DNS}"
 echo "Release Image: ${REL_IMAGE}"
-echo "Command: ${BASE_PATH}/repos/hypershift/bin/hypershift create cluster aws --aws-creds ~/.aws/credentials --instance-type m6i.xlarge --region ${REGION} --auto-repair --generate-ssh --name ${NAME} --namespace ${NS} --base-domain aws.kerbeross.com --node-pool-replicas ${WORKERS} --pull-secret ${HOME}/RedHat/RedHat_Engineering/pull_secret.json --release-image ${REL_IMAGE} ${DNS_FLAGS}"
+echo "CPO Override: ${CPO}"
+echo "Command: ${BASE_PATH}/repos/hypershift/bin/hypershift create cluster aws --aws-creds ~/.aws/credentials --instance-type m6i.xlarge --region ${REGION} --auto-repair --generate-ssh --name ${NAME} --namespace ${NS} --base-domain jpdv.aws.kerbeross.com --node-pool-replicas ${WORKERS} --pull-secret ${HOME}/RedHat/RedHat_Engineering/pull_secret.json --release-image ${REL_IMAGE} ${CPO_SUFFIX} ${DNS_FLAGS}"
 echo "=================="
 echo
 echo "Press enter to provision the environment..."
 
 read
 
-${BASE_PATH}/repos/hypershift/bin/hypershift create cluster aws --aws-creds ~/.aws/credentials --instance-type m6i.xlarge --region ${REGION} --auto-repair --generate-ssh --name ${NAME} --namespace ${NS} --base-domain aws.kerbeross.com --node-pool-replicas ${WORKERS} --pull-secret ${HOME}/RedHat/RedHat_Engineering/pull_secret.json --release-image ${REL_IMAGE} ${DNS_FLAGS}
+echo "Cleaning private zones"
+clean_private_zones "${NAME}.hypershift.local"
+clean_private_zones "${NAME}.jpdv.aws.kerbeross.com"
+echo
+echo "Done!"
+echo
+
+${BASE_PATH}/repos/hypershift/bin/hypershift create cluster aws --aws-creds ~/.aws/credentials --instance-type m6i.xlarge --region ${REGION} --auto-repair --generate-ssh --name ${NAME} --namespace ${NS} --base-domain jpdv.aws.kerbeross.com --node-pool-replicas ${WORKERS} --pull-secret ${HOME}/RedHat/RedHat_Engineering/pull_secret.json --release-image ${REL_IMAGE} ${CPO} ${DNS_FLAGS}
 
 mkdir -p ${BASE_PATH}/hosted_clusters/${NS}-${NAME}
 sleep 120
