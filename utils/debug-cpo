@@ -1,0 +1,34 @@
+#!/bin/bash
+set -euo pipefail
+
+if [[ -z $1 ]];then
+    echo "give me the HC Namespace"
+    exit 1
+fi
+
+if [[ -z $2 ]];then
+    echo "give me the HC Name"
+    exit 1
+fi
+
+NAMESPACE="${1}"
+NAME="${2}"
+cp_namespace="${NAMESPACE}-${NAME}"
+export METRICS_SET="Telemetry"
+export DOMAIN="jpdv.aws.kerbeross.com"
+export DEFAULT_INGRESS_DOMAIN="apps.${NAME}.${DOMAIN}"
+export AWS_SHARED_CREDENTIALS_FILE=$HOME/.aws/credentials
+export AWS_REGION=us-west-1
+export AWS_SDK_LOAD_CONFIG="true"
+
+if [[ ! -d $(pwd)/bin ]];then
+    echo "place yourself in the root repo folder"
+fi
+
+$(pwd)/bin/control-plane-operator \
+  run \
+  --in-cluster=false \
+  --enable-ci-debug-output \
+  --metrics-addr "0.0.0.0:8081" \
+  --health-probe-addr "0.0.0.0:6061" \
+  --namespace ${cp_namespace}
