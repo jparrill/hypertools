@@ -12,16 +12,25 @@ if [[ -z "${KUBECONFIG}" ]]; then
     exit 1
 fi
 
+if [[ ! -z "${HYP_IMAGE}" ]]; then
+    CUSTOM_IMAGE="--hypershift-image ${HYP_IMAGE}"
+else
+    CUSTOM_IMAGE=""
+fi
+
+
+
 echo "Variables Debug: "
 echo "=================="
 echo "AWS Region: ${REGION}"
 echo "Kubeconfig: ${KUBECONFIG}"
-echo "Release Image: ${REL_IMAGE}"
+echo "Release Image: ${HYP_IMAGE}"
 echo "Command: ${BASE_PATH}/repos/hypershift/bin/hypershift install \ "
 echo "   --oidc-storage-provider-s3-bucket-name jparrill-hosted-${REGION} --oidc-storage-provider-s3-credentials $HOME/.aws/credentials --oidc-storage-provider-s3-region ${REGION} \ "
 echo "   --private-platform AWS --aws-private-creds ~/.aws/credentials --aws-private-region ${REGION} \ "
 echo "   --external-dns-provider=aws --external-dns-credentials=$HOME/.aws/credentials --external-dns-domain-filter=hc.jpdv.aws.kerbeross.com \ "
-echo "   --platform-monitoring=OperatorOnly --enable-uwm-telemetry-remote-write --enable-ci-debug-output --metrics-set All --enable-validating-webhook --development"
+echo "   --platform-monitoring=OperatorOnly --enable-uwm-telemetry-remote-write --enable-ci-debug-output --metrics-set All --development \ "
+echo "   ${CUSTOM_IMAGE}"
 echo "=================="
 echo
 echo "Press enter to Install Hypershift"
@@ -32,7 +41,8 @@ ${BASE_PATH}/repos/hypershift/bin/hypershift install \
     --oidc-storage-provider-s3-bucket-name jparrill-hosted-${REGION} --oidc-storage-provider-s3-credentials $HOME/.aws/credentials --oidc-storage-provider-s3-region ${REGION} \
     --private-platform AWS --aws-private-creds ~/.aws/credentials --aws-private-region ${REGION} \
     --external-dns-provider=aws --external-dns-credentials=$HOME/.aws/credentials --external-dns-domain-filter=hc.jpdv.aws.kerbeross.com \
-    --platform-monitoring=OperatorOnly --enable-uwm-telemetry-remote-write --enable-ci-debug-output --metrics-set All --enable-validating-webhook --development
+    --platform-monitoring=OperatorOnly --enable-uwm-telemetry-remote-write --enable-ci-debug-output --metrics-set All --development \
+    ${CUSTOM_IMAGE}
 
 sleep 10
 oc scale deployment/operator -n hypershift --replicas=1
