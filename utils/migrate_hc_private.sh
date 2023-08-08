@@ -291,7 +291,8 @@ function backup_hc {
 
 function restore_hc {
     # MGMT2 Context
-    MGMT2_REGION=us-east-1
+    #MGMT2_REGION=us-east-1
+    MGMT2_REGION=us-west-1
     MGMT2_CLUSTER_NAME="${USER}-dest"
     MGMT2_CLUSTER_NS=${USER}
     MGMT2_CLUSTER_DIR="${BASE_PATH}/hosted_clusters/${MGMT2_CLUSTER_NS}-${MGMT2_CLUSTER_NAME}"
@@ -411,7 +412,7 @@ source $REPODIR/common/common.sh
 ## Backup
 echo "Creating HC Backup"
 SECONDS=0
-backup_hc
+#backup_hc
 echo "Backup Done!"
 ELAPSED="Elapsed: $(($SECONDS / 3600))hrs $((($SECONDS / 60) % 60))min $(($SECONDS % 60))sec"
 echo $ELAPSED
@@ -421,7 +422,7 @@ read
 ## Migration
 SECONDS=0
 echo "Executing the HC Migration"
-restore_hc
+#restore_hc
 echo "Restoration Done!"
 ELAPSED="Elapsed: $(($SECONDS / 3600))hrs $((($SECONDS / 60) % 60))min $(($SECONDS % 60))sec"
 echo $ELAPSED
